@@ -1,0 +1,222 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Numerics;
+
+namespace RSAEncryption
+{
+    class Program
+    {
+        static bool IsPrime(int num)
+        {
+            if (num < 2)
+            {
+                return false;
+            }
+
+            for (int i = 2; i <= Math.Sqrt(num); i++)
+            {
+                if (num % i == 0)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        static Tuple<int, int> FindPrimes(int n)
+        {
+            for (int i = 2; i < n; i++)
+            {
+                if (IsPrime(i) && n % i == 0)
+                {
+                    return Tuple.Create(i, n / i);
+                }
+            }
+
+            return null;
+        }
+
+        static int Euclidean(int dividend, int divisor)
+        {
+            while (divisor != 0)
+            {
+                int remainder = dividend % divisor;
+                dividend = divisor;
+                divisor = remainder;
+            }
+
+            return dividend;
+        }
+
+        static Tuple<int, int, int> ExtendedEuclidean(int a, int b)
+        {
+            int s = 0, old_s = 1;
+            int t = 1, old_t = 0;
+            int r = b, old_r = a;
+
+            while (r != 0)
+            {
+                int quotient = old_r / r;
+                int temp = r;
+                r = old_r - quotient * r;
+                old_r = temp;
+
+                temp = s;
+                s = old_s - quotient * s;
+                old_s = temp;
+
+                temp = t;
+                t = old_t - quotient * t;
+                old_t = temp;
+            }
+
+            return Tuple.Create(old_r, old_s, old_t);
+        }
+
+        static int ModInverse(int a, int modulus)
+        {
+            Tuple<int, int, int> result = ExtendedEuclidean(a, modulus);
+            int gcd = result.Item1;
+            int s = result.Item2;
+
+            if (gcd != 1)
+            {
+                throw new Exception("Negative modular does not exist");
+            }
+
+            return s < 0 ? s + modulus : s;
+        }
+
+        static int FindPublicKey(int totient)
+        {
+            Random random = new Random();
+            int e = random.Next(2, totient);
+
+            while (Euclidean(e, totient) != 1)
+            {
+                e = random.Next(2, totient);
+            }
+
+            return e;
+        }
+
+        static int FindPrivateKey(int e, int totient)
+        {
+            return ModInverse(e, totient);
+        }
+
+        static int[] Encrypt(string plaintext, Tuple<int, int> publicKey)
+        {
+            int n = publicKey.Item1;
+            int e = publicKey.Item2;
+            int[] ciphertext = new int[plaintext.Length];
+
+            for (int i = 0; i < plaintext.Length; i++)
+            {
+                char c = plaintext[i];
+                int ascii = (int)c;
+                int encrypted = (int)BigInteger.ModPow(ascii, e, n);
+                ciphertext[i] = encrypted;
+            }
+
+            return ciphertext;
+        }
+
+        static string Decrypt(int[] ciphertext, int privateKey, int n)
+        {
+            char[] decrypted = new char[ciphertext.Length];
+
+            for (int i = 0; i < ciphertext.Length; i++)
+            {
+                int c = ciphertext[i];
+                int decryptedInt = (int)BigInteger.ModPow(c, privateKey, n);
+                decrypted[i] = (char)decryptedInt;
+            }
+
+            return new string(decrypted);
+        }
+
+        static void Save(int[] ciphertext, Tuple<int, int> publicKey)
+        {
+            File.WriteAllText("ciphertext.txt", string.Join(" ", ciphertext));
+            File.WriteAllText("public_key.txt", $"{publicKey.Item1} {publicKey.Item2}");
+        }
+
+        static Tuple<int[], Tuple<int, int>> ReadFile()
+        {
+            try
+            {
+                string[] lines = File.ReadAllLines("ciphertext.txt");
+                int[] ciphertext = lines[0].Split(' ').Select(int.Parse).ToArray();
+                string[] publicKeyLines = File.ReadAllLines("public_key.txt");
+                int n = int.Parse(publicKeyLines[0].Split(' ')[0]);
+                int e = int.Parse(publicKeyLines[0].Split(' ')[1]);
+                Tuple<int, int> publicKey = Tuple.Create(n, e);
+                return Tuple.Create(ciphertext, publicKey);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"An error occurred while reading the files: {ex.Message}");
+                return null;
+            }
+        }
+
+        static void Main(string[] args)
+        {
+            Console.WriteLine("To Encrypt press (E) and for Decrypt press (D): ");
+            string option = Console.ReadLine();
+
+            if (option.ToLower() == "e")
+            {
+                Console.WriteLine("Enter prime number p: ");
+                int p = int.Parse(Console.ReadLine());
+                while (!IsPrime(p))
+                {
+                    Console.WriteLine("p has to be prime number. Try again! ");
+                    p = int.Parse(Console.ReadLine());
+                }
+
+                Console.WriteLine("Enter prime number q: ");
+                int q = int.Parse(Console.ReadLine());
+                while (!IsPrime(q))
+                {
+                    Console.WriteLine("q has to be prime number. Try again! ");
+                    q = int.Parse(Console.ReadLine());
+                }
+
+                Console.WriteLine("Enter text: ");
+                string x = Console.ReadLine();
+                int n = p * q;
+                int totient = (p - 1) * (q - 1);
+
+                int e = FindPublicKey(totient);
+                Tuple<int, int> public_key = Tuple.Create(n, e);
+                int private_key = FindPrivateKey(e, totient);
+                int[] encrypted_text = Encrypt(x, public_key);
+                Console.WriteLine("Encrypted text:");
+                Console.WriteLine(string.Join(" ", encrypted_text));
+                Save(encrypted_text, public_key);
+            }
+            else if (option.ToLower() == "d")
+            {
+                Tuple<int[], Tuple<int, int>> result = ReadFile();
+                int[] ciphertext = result.Item1;
+                Tuple<int, int> public_key = result.Item2;
+                int n = public_key.Item1;
+                int p = FindPrimes(n).Item1;
+                int q = n / p;
+                int totient = (p - 1) * (q - 1);
+                int private_key = FindPrivateKey(public_key.Item2, totient);
+                string decrypted_text = Decrypt(ciphertext, private_key, n);
+                Console.WriteLine("Decrypted text:");
+                Console.WriteLine(decrypted_text);
+            }
+            else
+            {
+                Console.WriteLine("No option ");
+            }
+        }
+    }
+}
